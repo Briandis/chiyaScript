@@ -1,11 +1,16 @@
 from typing import List
 
 
-class StringMatch:
+class IterativeMatch:
+    """ 迭代匹配 """
 
-    def __init__(self, data: str):
+    def __init__(self, data):
+        """
+        可迭代对象构建
+        :param data:可迭代对象
+        """
         self.data = data
-        """ 存储的字符串 """
+        """ 迭代数据 """
         self.index = 0
         """ 当前判断的下标 """
 
@@ -13,16 +18,17 @@ class StringMatch:
         """ 重置 """
         self.index = 0
 
-    def match(self, next_string):
+    def match(self, next_data):
         """
-        判断下一个字符符不符合
-        :param next_string: 下一个字符串
+        对迭代序列进行迭代
+        :param next_data: 下一个迭代的数据
         :return: 是前缀，完全匹配
         """
         if self.data is None or len(self.data) == 0:
             return True, True
-        for char in next_string:
-            if self.data[self.index] == char:
+
+        for data in next_data:
+            if self.data[self.index] == data:
                 self.index += 1
             else:
                 self.reset()
@@ -61,9 +67,9 @@ class MatchFactor:
     def __init__(self, factor: Factor):
         self.factor: Factor = factor
         """ 因子 """
-        self.start_match = StringMatch(self.factor.start)
+        self.start_match = IterativeMatch(self.factor.start)
         """ 开始匹配 """
-        self.end_match = StringMatch(self.factor.end)
+        self.end_match = IterativeMatch(self.factor.end)
         """ 结尾匹配 """
         self.cache = ""
         """ 缓存中间字符 """
@@ -115,17 +121,35 @@ class MatchFactor:
 
 
 class Token:
-    def __init__(self, match_factor: MatchFactor):
-        self.start = match_factor.factor.start
-        """ 开始 """
-        self.end = match_factor.factor.end
-        """ 结束 """
-        self.data = match_factor.cache
-        """ 内容 """
-        self.type = match_factor.factor.status
+    def __init__(self, match_factor: MatchFactor = None):
+        self.type = None
         """ 类型 """
-        self.end_index = match_factor.end_index
+        self.token_tree = []
+        """ Token树 """
+        self.start = None
+        """ 开始 """
+        self.end = None
+        """ 结束 """
+        self.data = ""
+        """ 内容 """
+        self.type = None
+        """ 类型 """
+        self.end_index = None
         """ 源文件字符位置 """
+
+        if match_factor is not None:
+            self.start = match_factor.factor.start
+            self.end = match_factor.factor.end
+            self.data = match_factor.cache
+            self.type = match_factor.factor.status
+            self.end_index = match_factor.end_index
+
+    def add_tree(self, token):
+        """
+        添加树
+        :param token: Token节点
+        """
+        self.token_tree.append(token)
 
 
 class CombinationFactor:
@@ -256,39 +280,3 @@ class CodeParser:
             match_factor.end_index = now_index - 1
             token_list.append(Token(match_factor))
         return token_list
-
-
-class LexicalFactor:
-    def __init__(self, data=None, *token_type, ):
-        """
-        词法
-        :param token_type: token类型
-        :param data: token的值
-        """
-        self.type = []
-        """ token类型 """
-        self.data = data
-        """ token的值 """
-        self.type.extend(token_type)
-
-
-class AbstractSyntaxTree:
-
-    def __init__(self, status):
-        self._syntax: List[LexicalFactor] = []
-        """ 语法结构 """
-        self.status = status
-        """ 自身类型 """
-
-    def add_lexical(self, *lexical_list):
-        """
-        添加语法
-        :param lexical_list:
-        :return:
-        """
-        for lexical in lexical_list:
-            self._syntax.append(lexical)
-
-
-a = AbstractSyntaxTree("attribute")
-a.add_lexical(LexicalFactor(None, "any", "attribute"), LexicalFactor(".", None), LexicalFactor("any", "any"))
