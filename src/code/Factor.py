@@ -151,6 +151,7 @@ class SyntaxParser:
 
     def __init__(self):
         self.flow_list = []
+        self.keyword_list = []
 
     def add_syntax(self, flow, syntax_factor: SyntaxFactor, need_recursion=False):
         """
@@ -165,6 +166,26 @@ class SyntaxParser:
                 return
         self.flow_list.append([flow, SyntaxList(), need_recursion])
         self.flow_list[-1][1].add_syntax(syntax_factor)
+
+    def mark_keyword(self, token_list: List[Token]):
+        """
+        标记关键字
+        :param token_list: token列表
+        :return:
+        """
+        # 标记关键字
+        for token_data in token_list:
+            if token_data.type == "any" and token_data.data in self.keyword_list:
+                token_data.type = "key:" + token_data.data
+        return token_list
+
+    def register_keyword(self, *keyword):
+        """
+        声明关键字
+        :param keyword:关键字
+        """
+        for key in keyword:
+            self.keyword_list.append(key)
 
     @staticmethod
     def switch_factor(factor: SyntaxList, index, token_list: List[Token]) -> List[SyntaxMatch]:
@@ -198,10 +219,7 @@ class SyntaxParser:
             index += 1
 
         # 排序，起始标识进行升序
-        for i in range(len(satisfy_factor)):
-            for j in range(i, len(satisfy_factor)):
-                if satisfy_factor[i].now_index > satisfy_factor[j].now_index:
-                    satisfy_factor[i], satisfy_factor[j] = satisfy_factor[j], satisfy_factor[i]
+        satisfy_factor.sort(key=lambda x: x.now_index)
         return satisfy_factor
 
     def parser(self, token_list: List[Token]):
@@ -215,6 +233,7 @@ class SyntaxParser:
                 if self.flow_list[a_index][0] > self.flow_list[b_index][0]:
                     self.flow_list[a_index], self.flow_list[b_index] = self.flow_list[b_index], self.flow_list[a_index]
         while_list = [*token_list]
+
         for flow in self.flow_list:
             now_index = 0
             while now_index < len(while_list):
