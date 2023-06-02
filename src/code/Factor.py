@@ -228,10 +228,7 @@ class SyntaxParser:
         :param token_list:Token列表
         :return:
         """
-        for a_index in range(len(self.flow_list)):
-            for b_index in range(a_index, len(self.flow_list)):
-                if self.flow_list[a_index][0] > self.flow_list[b_index][0]:
-                    self.flow_list[a_index], self.flow_list[b_index] = self.flow_list[b_index], self.flow_list[a_index]
+        self.flow_list.sort(key=lambda x: x[0])
         while_list = [*token_list]
 
         for flow in self.flow_list:
