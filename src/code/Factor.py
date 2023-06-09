@@ -31,17 +31,20 @@ class WordRule:
 
 
 class LexicalFactor:
-    def __init__(self, word_rule: WordRule | None = None, *token_type):
+    def __init__(self, word_rule: WordRule | None = None, *token_type, allow_end=False):
         """
         词法
         :param token_type: token类型
         :param word_rule: 字符规则
+        :param allow_end:允许结尾没有匹配
         """
         self.type = []
         """ token类型 """
         self.word_rule = word_rule
         """ token的值 """
         self.type.extend(token_type)
+        self.allow_end = allow_end
+        """ 允许结尾没有匹配 """
 
 
 class SyntaxFactor:
@@ -78,6 +81,9 @@ class SyntaxMatch:
         self.paired_end_count = 0
         """ 成对右边技术 """
         self.paired_flag = False
+        """ 成对标记 """
+        self.end_flag = False
+        """ 标记允许匹配到结尾中止 """
 
     @staticmethod
     def token_same(now_factor, now_token):
@@ -153,19 +159,50 @@ class SyntaxParser:
         self.flow_list = []
         self.keyword_list = []
 
-    def add_syntax(self, flow, syntax_factor: SyntaxFactor, need_recursion=False):
+    def add_syntax(self, flow, syntax_factor: SyntaxFactor, need_recursion=False, prefix_outside=False, suffix_outside=False):
         """
         添加语法，
         :param flow: 优先级
         :param syntax_factor:语法
         :param need_recursion:需要递归解析
+        :param prefix_outside:匹配的前缀放置外层
+        :param suffix_outside:匹配的周会放置外层
         """
         for flow_info in self.flow_list:
             if flow_info[0] == flow:
                 flow_info[1].add_syntax(syntax_factor)
                 return
-        self.flow_list.append([flow, SyntaxList(), need_recursion])
+        self.flow_list.append([flow, SyntaxList(), need_recursion, prefix_outside, suffix_outside])
         self.flow_list[-1][1].add_syntax(syntax_factor)
+
+    @staticmethod
+    def mark_type(token_list: List[Token], old_type: List[str] | str, new_type: str, old_data: List[str] = None, not_case_data: List[str] | None = None):
+        """
+        标记类型
+        :param token_list: token列表
+        :param old_type: 旧类型
+        :param new_type: 新类型
+        :param old_data: 区分大小写的之
+        :param not_case_data: 不区分大小写的值
+        """
+        # 全部小写化
+        if not_case_data:
+            new_case = set()
+            for data in not_case_data:
+                new_case.add(data.lower())
+            not_case_data = new_case
+        if isinstance(old_data, str):
+            old_data = [old_data]
+        for token_data in token_list:
+            if token_data.type in old_type:
+                if old_data or not_case_data:
+                    if old_data and token_data.data in old_data:
+                        token_data.type = new_type
+                    elif not_case_data and token_data.data.lower() in not_case_data:
+                        token_data.type = new_type
+                else:
+                    token_data.type = new_type
+        return token_list
 
     def mark_keyword(self, token_list: List[Token]):
         """
@@ -217,7 +254,12 @@ class SyntaxParser:
             if len(judge_start_list) == 0:
                 break
             index += 1
-
+        # 对循环结束，允许匹配到结尾的类型
+        if judge_start_list:
+            for factor_match in judge_start_list:
+                if factor_match.syntax_factor.syntax[-1].allow_end:
+                    factor_match.end_flag = True
+                    satisfy_factor.append(factor_match)
         # 排序，起始标识进行升序
         satisfy_factor.sort(key=lambda x: x.now_index)
         return satisfy_factor
@@ -248,18 +290,31 @@ class SyntaxParser:
 
                     branch = Token()
                     branch.type = syntax.syntax_factor.status
+                    # 匹配查找
                     if flow[2]:
                         temp_list = []
                         for index in range(syntax.now_index):
                             temp_list.append(while_list[now_index + index])
-                        branch.add_tree(temp_list[0])
+                        # 对于匹配想，将前后匹配项加入树中，根据条件选择放置外面还是里面
+                        if flow[3]:
+                            new_while.append(temp_list[0])
+                            now_index += 1
+                        else:
+                            branch.add_tree(temp_list[0])
                         for token in self.parser(temp_list[1:-1]):
                             branch.add_tree(token)
-                        branch.add_tree(temp_list[-1])
+                        # 中间部分
+                        new_while.append(branch)
+                        # 结尾是否放入外面还是里面，如果是空结尾则不进行添加
+                        if flow[4] and not syntax.end_flag:
+                            new_while.append(temp_list[-1])
+                            syntax.now_index -= 1
+                        else:
+                            branch.add_tree(temp_list[-1])
                     else:
                         for index in range(syntax.now_index):
                             branch.add_tree(while_list[now_index + index])
-                    new_while.append(branch)
+                        new_while.append(branch)
                     jump_index = syntax.now_index
                 for add_index in range(now_index + jump_index, len(while_list)):
                     new_while.append(while_list[add_index])
