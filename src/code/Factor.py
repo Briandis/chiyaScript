@@ -1,6 +1,7 @@
 from typing import List
 
 from src.code.CodeParser import Token
+from src.code.Flow import Flow
 
 
 class WordRule:
@@ -58,6 +59,8 @@ class SyntaxFactor:
         """ 需要匹配 """
         self.need_paired = need_paired
         """ 需要左右成对 """
+        self.token_type = []
+        """ 匹配后替换的token类型 """
 
     def add_lexical(self, *lexical_list):
         """
@@ -67,6 +70,14 @@ class SyntaxFactor:
         """
         for lexical in lexical_list:
             self.syntax.append(lexical)
+
+    def add_type(self, *type_list):
+        """
+        添加替换类型
+        :param type_list:类型列表
+        """
+        for token_type in type_list:
+            self.token_type.append(token_type)
 
 
 class SyntaxMatch:
@@ -129,6 +140,21 @@ class SyntaxMatch:
                 is_similar = self.token_same(now_factor, next_token)
                 return is_similar, is_similar and is_end
 
+    def change_type(self, token_list: List[Token]):
+        """
+        匹配后更改对应位置的token类型，以配置的类型为基准
+        :param token_list:token列表
+        """
+        if self.syntax_factor.token_type:
+            for index in range(len(self.syntax_factor.token_type)):
+                token_type = self.syntax_factor.token_type[index]
+                if isinstance(token_type, str):
+                    # 字符串的情况
+                    token_list[index].type = token_type
+                elif isinstance(token_type, dict) and token_list[index].type in token_type:
+                    # 字典的情况
+                    token_list[index].type = token_type[token_type]
+
 
 class SyntaxList:
     def __init__(self):
@@ -153,27 +179,41 @@ class SyntaxList:
         return out_list
 
 
+class SyntaxParserConfig:
+
+    def __init__(self, need_recursion=False, prefix_outside=False, suffix_outside=False):
+        """
+        语法解析配置
+        :param need_recursion:需要递归
+        :param prefix_outside:前缀匹配的token放到外层
+        :param suffix_outside: 后缀匹配的token放到外层
+        """
+        self.need_recursion = need_recursion
+        """ 需要递归 """
+        self.prefix_outside = prefix_outside
+        """ 前缀匹配的token放到外层 """
+        self.suffix_outside = suffix_outside
+        """ 后缀匹配的token放到外层 """
+
+
 class SyntaxParser:
 
     def __init__(self):
-        self.flow_list = []
+        self.flow: Flow[SyntaxParserConfig] = Flow()
         self.keyword_list = []
 
-    def add_syntax(self, flow, syntax_factor: SyntaxFactor, need_recursion=False, prefix_outside=False, suffix_outside=False):
+    def add_syntax(self, index, syntax_factor: SyntaxFactor, need_recursion=False, prefix_outside=False, suffix_outside=False):
         """
         添加语法，
-        :param flow: 优先级
+        :param index: 优先级
         :param syntax_factor:语法
         :param need_recursion:需要递归解析
         :param prefix_outside:匹配的前缀放置外层
         :param suffix_outside:匹配的周会放置外层
         """
-        for flow_info in self.flow_list:
-            if flow_info[0] == flow:
-                flow_info[1].add_syntax(syntax_factor)
-                return
-        self.flow_list.append([flow, SyntaxList(), need_recursion, prefix_outside, suffix_outside])
-        self.flow_list[-1][1].add_syntax(syntax_factor)
+        syntax = SyntaxList()
+        syntax.add_syntax(syntax_factor)
+        self.flow.add_flow(index, None, syntax, SyntaxParserConfig(need_recursion, prefix_outside, suffix_outside))
 
     @staticmethod
     def mark_type(token_list: List[Token], old_type: List[str] | str, new_type: str, old_data: List[str] = None, not_case_data: List[str] | None = None):
@@ -204,16 +244,27 @@ class SyntaxParser:
                     token_data.type = new_type
         return token_list
 
-    def mark_keyword(self, token_list: List[Token]):
+    def mark_keyword(self, token_list: List[Token], ignore_case=False, replace_type="any"):
         """
         标记关键字
         :param token_list: token列表
-        :return:
+        :param ignore_case:忽略大小写
+        :param replace_type:替换的类型
         """
         # 标记关键字
+        keyword = set()
+        if ignore_case:
+            for item in self.keyword_list:
+                keyword.add(item.lower())
+        else:
+            keyword.update(self.keyword_list)
+
         for token_data in token_list:
-            if token_data.type == "any" and token_data.data in self.keyword_list:
-                token_data.type = "key:" + token_data.data
+            now_data = token_data.data
+            if ignore_case:
+                now_data = now_data.lower()
+            if token_data.type == replace_type and now_data in keyword:
+                token_data.type = "key:" + now_data
         return token_list
 
     def register_keyword(self, *keyword):
@@ -270,14 +321,13 @@ class SyntaxParser:
         :param token_list:Token列表
         :return:
         """
-        self.flow_list.sort(key=lambda x: x[0])
         while_list = [*token_list]
 
-        for flow in self.flow_list:
+        for flow in self.flow:
             now_index = 0
             while now_index < len(while_list):
                 # 匹配找到的token
-                syntax_factor = self.switch_factor(flow[1], now_index, while_list)
+                syntax_factor = self.switch_factor(flow.flow_data, now_index, while_list)
 
                 # 重新生成token序列
                 new_while = []
@@ -291,12 +341,12 @@ class SyntaxParser:
                     branch = Token()
                     branch.type = syntax.syntax_factor.status
                     # 匹配查找
-                    if flow[2]:
+                    if flow.config.need_recursion:
                         temp_list = []
                         for index in range(syntax.now_index):
                             temp_list.append(while_list[now_index + index])
                         # 对于匹配想，将前后匹配项加入树中，根据条件选择放置外面还是里面
-                        if flow[3]:
+                        if flow.config.prefix_outside:
                             new_while.append(temp_list[0])
                             now_index += 1
                         else:
@@ -306,7 +356,7 @@ class SyntaxParser:
                         # 中间部分
                         new_while.append(branch)
                         # 结尾是否放入外面还是里面，如果是空结尾则不进行添加
-                        if flow[4] and not syntax.end_flag:
+                        if flow.config.suffix_outside and not syntax.end_flag:
                             new_while.append(temp_list[-1])
                             syntax.now_index -= 1
                         else:
@@ -315,6 +365,8 @@ class SyntaxParser:
                         for index in range(syntax.now_index):
                             branch.add_tree(while_list[now_index + index])
                         new_while.append(branch)
+                        # 修改token类型
+                        syntax.change_type(branch.token_tree)
                     jump_index = syntax.now_index
                 for add_index in range(now_index + jump_index, len(while_list)):
                     new_while.append(while_list[add_index])
