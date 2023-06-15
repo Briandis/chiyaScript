@@ -43,7 +43,7 @@ class IterativeMatch:
 
 class Factor:
 
-    def __init__(self, status, start, end, need_escape=True, next_parser=None, self_mark=None):
+    def __init__(self, status, start, end, need_escape=False, next_parser=None, self_mark=None):
         """
         构造方法
         :param status: 状态
@@ -81,6 +81,15 @@ class MatchFactor:
         """ 转义字符状态 """
         self.end_index = -1
         """ 最终停止的字符位置 """
+        self.next_flag = False
+
+    def reset(self):
+        """ 重置 """
+        self.start_match.reset()
+        self.start_match.reset()
+        self.cache = ""
+        self.escape = False
+        self.end_index = -1
         self.next_flag = False
 
     def prefix(self, next_char):
@@ -200,8 +209,10 @@ class CombinationFactor:
     def __init__(self):
         self.data: List[Factor] = []
         """ 全部因子信息 """
+        self.cache: List[MatchFactor] = []
+        """ 匹配器缓存 """
 
-    def add_factor(self, status, start, end=None, next_parser=None, self_mark=None):
+    def add_factor(self, status, start, end=None, next_parser=None, self_mark=None, need_escape=False):
         """
         添加因子
         :param status:状态
@@ -209,18 +220,27 @@ class CombinationFactor:
         :param end: 结束
         :param next_parser:下一层解析
         :param self_mark:自身标记
+        :param need_escape:需要转义处理
         """
-        self.data.append(Factor(status, start, end, next_parser=next_parser, self_mark=self_mark))
+        self.data.append(Factor(status, start, end, need_escape, next_parser=next_parser, self_mark=self_mark))
+
+    def clear_cache(self):
+        """ 清除缓存 """
+        self.cache = []
 
     def to_match_factor(self) -> List[MatchFactor]:
         """
         制造一批匹配因子
         :return: 复制的因子列表
         """
-        out_list = []
-        for factor in self.data:
-            out_list.append(MatchFactor(factor))
-        return out_list
+        if not self.cache:
+            self.cache = []
+            for factor in self.data:
+                self.cache.append(MatchFactor(factor))
+        else:
+            for match_factor in self.cache:
+                match_factor.reset()
+        return self.cache
 
 
 class CodeParser:
@@ -237,7 +257,7 @@ class CodeParser:
         for token in args:
             self.factor.add_factor(token_type, token)
 
-    def add_combination(self, token_type: str, start: str, end: str, next_parser=None, self_mark=None):
+    def add_combination(self, token_type: str, start: str, end: str, next_parser=None, self_mark=None, need_escape=False):
         """
         添加组合token
         :param token_type:
@@ -245,8 +265,9 @@ class CodeParser:
         :param end: 结束
         :param next_parser:匹配后下一层解析
         :param self_mark: 自身标记
+        :param need_escape: 需要转义匹配
         """
-        self.factor.add_factor(token_type, start, end, next_parser, self_mark)
+        self.factor.add_factor(token_type, start, end, next_parser, self_mark, need_escape)
 
     def switch_token(self, index, source_code):
         # 符合的因子
@@ -275,7 +296,22 @@ class CodeParser:
         satisfy_factor.sort(key=lambda x: x.factor.start)
         return satisfy_factor
 
-    def to_token(self, source_code, any_type="any") -> List[Token]:
+    def to_token(self, source_code, any_type="any", skip_type=None) -> List[Token]:
+        """
+        将代码解析成token
+        :param source_code:源码
+        :param any_type: 未识别类型
+        :param skip_type: 跳过的类型
+        :return: token列表
+        """
+        if skip_type:
+            if isinstance(skip_type, str):
+                skip_type = {skip_type}
+            else:
+                skip_type = set(skip_type)
+        else:
+            skip_type = set()
+
         token_list = []
         now_index = 0
         any_token = ""
@@ -287,23 +323,31 @@ class CodeParser:
                 if any_token != "":
                     token_list.append(Token.any_token(any_type, any_token, now_index - 1))
                     any_token = ""
-                last_token = find_token[-1]
-                if last_token.factor.next_parser is not None:
-                    temp_token_list = last_token.factor.next_parser.to_token(last_token.cache, last_token.factor.status)
-                    # 此处计算的是起始坐标
-                    start_index = last_token.end_index - len(last_token.cache) - 1
-                    self_mark = last_token.factor.status
-                    if last_token.factor.self_mark:
-                        self_mark = last_token.factor.self_mark
-                    token_list.append(Token.start_type(self_mark, last_token.factor.start, start_index))
-                    for token in temp_token_list:
-                        token.end_index = start_index + token.end_index + 1
-                    token_list.extend(temp_token_list)
-                    token_list.append(Token.end_type(self_mark, last_token.factor.end, last_token.end_index))
 
-                else:
-                    token_list.append(Token(last_token))
-                now_index = last_token.end_index
+                last_token = find_token[-1]
+                if last_token.factor.status not in skip_type:
+                    # 缓存结尾下标，防止递归解析时，信息丢失
+                    end_index = last_token.end_index
+                    # 如果需要递归解析
+                    if last_token.factor.next_parser is not None:
+                        # 先进性计算，递归解析中会将当前状态信息重置
+                        start_index = end_index - len(last_token.cache) - 1
+                        self_mark = last_token.factor.status
+                        # 如果有自身类型，则装配自身类型
+                        if last_token.factor.self_mark:
+                            self_mark = last_token.factor.self_mark
+                        # 进行递归解析
+                        temp_token_list = last_token.factor.next_parser.to_token(last_token.cache, last_token.factor.status, skip_type)
+                        # 此处计算的是起始坐标
+                        token_list.append(Token.start_type(self_mark, last_token.factor.start, start_index))
+                        for token in temp_token_list:
+                            token.end_index = start_index + token.end_index + 1
+                        token_list.extend(temp_token_list)
+                        token_list.append(Token.end_type(self_mark, last_token.factor.end, end_index))
+
+                    else:
+                        token_list.append(Token(last_token))
+                    now_index = end_index
 
             now_index += 1
         if any_token != "":

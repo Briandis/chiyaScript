@@ -43,7 +43,10 @@ class CodeHandle:
     @staticmethod
     def replace(code_token: List[Token], replace_rule: Dict[str, Dict[str, str]], ignore_case=False):
         """
-        替换token列表
+        替换token列表,替换规则为{
+            "类型1":{"old":"new"},
+            "类型2":{"old":"new"}
+        }
         :param code_token:token列表
         :param replace_rule: 替换规则
         :param ignore_case: 是否忽略大小写
