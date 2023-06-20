@@ -377,9 +377,9 @@ class CodeParser:
                     token_list.append(Token.any_token(any_type, any_token, now_index - 1))
                     any_token = ""
                 last_match = match_result[-1]
+                # 缓存结尾下标，防止递归解析时，信息丢失
+                end_index = last_match.end_index
                 if last_match.token_rule.status not in skip_type:
-                    # 缓存结尾下标，防止递归解析时，信息丢失
-                    end_index = last_match.end_index
                     # 如果需要递归解析
                     if last_match.token_rule.next_parser is not None:
                         # 先进性计算，递归解析中会将当前状态信息重置
@@ -399,7 +399,7 @@ class CodeParser:
 
                     else:
                         token_list.append(Token(last_match))
-                    now_index = end_index
+                now_index = end_index
             else:
                 any_token += source_code[now_index]
             now_index += 1
