@@ -171,7 +171,7 @@ class SyntaxMatch:
                     token_list[index].type = token_type
                 elif isinstance(token_type, dict) and token_list[index].type in token_type:
                     # 字典的情况
-                    token_list[index].type = token_type[token_type]
+                    token_list[index].type = token_type[token_list[index].type]
 
 
 class SyntaxList:
