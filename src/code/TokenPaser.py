@@ -1,3 +1,4 @@
+import time
 from typing import List
 
 from src.code.ChiyaScript import LoggerUtil
@@ -199,13 +200,13 @@ class SyntaxList:
 
 class SyntaxParserConfig:
 
-    def __init__(self, need_recursion=False, prefix_outside=False, suffix_outside=False, parser_end=False):
+    def __init__(self, need_recursion=False, prefix_outside=False, suffix_outside=False):
         """
         语法解析配置
         :param need_recursion:需要递归
         :param prefix_outside:前缀匹配的token放到外层
         :param suffix_outside: 后缀匹配的token放到外层
-        :param parser_end:结尾继续进行下一次匹配
+        :param in_self:当作自身
         """
         self.need_recursion = need_recursion
         """ 需要递归 """
@@ -213,8 +214,6 @@ class SyntaxParserConfig:
         """ 前缀匹配的token放到外层 """
         self.suffix_outside = suffix_outside
         """ 后缀匹配的token放到外层 """
-        self.parser_end = parser_end
-        """ 结尾继续进行下一次匹配 """
 
 
 class SyntaxParser:
@@ -223,7 +222,7 @@ class SyntaxParser:
         self.flow: Flow[SyntaxParserConfig] = Flow()
         self.keyword_list = []
 
-    def add_syntax(self, index, syntax_factor: SyntaxFactor, need_recursion=False, prefix_outside=False, suffix_outside=False, parser_end=False):
+    def add_syntax(self, index, syntax_factor: SyntaxFactor, need_recursion=False, prefix_outside=False, suffix_outside=False):
         """
         添加语法，
         :param index: 优先级
@@ -231,11 +230,10 @@ class SyntaxParser:
         :param need_recursion:需要递归解析
         :param prefix_outside:匹配的前缀放置外层
         :param suffix_outside:匹配的周会放置外层
-        :param parser_end:将结尾继续进行下一次匹配
         """
         syntax = SyntaxList()
         syntax.add_syntax(syntax_factor)
-        self.flow.add_flow(index, None, syntax, SyntaxParserConfig(need_recursion, prefix_outside, suffix_outside, parser_end))
+        self.flow.add_flow(index, None, syntax, SyntaxParserConfig(need_recursion, prefix_outside, suffix_outside))
 
     @staticmethod
     def mark_type(token_list: List[Token], old_type: List[str] | str, new_type: str, old_data: List[str] = None, not_case_data: List[str] | None = None):
@@ -345,80 +343,61 @@ class SyntaxParser:
         :return:
         """
         while_list = [*token_list]
-
         for flow in self.flow:
             now_index = 0
+            next_list = []
             while now_index < len(while_list):
                 # 匹配找到的token
                 syntax_factor = self.switch_factor(flow.flow_data, now_index, while_list)
-
-                # 重新生成token序列
-                new_while = []
-                for add_index in range(now_index):
-                    new_while.append(while_list[add_index])
-                jump_index = 0
                 # 如果存在构成词法的，则进行添加
                 if syntax_factor:
                     syntax = syntax_factor[0]
-
                     branch = Token()
                     branch.type = syntax.syntax_factor.status
                     if is_debug:
                         print("当前判别类型", syntax.syntax_factor.status)
                         token_debug(while_list)
                         print()
-                    # 匹配查找
+                    # 需要递归
                     if flow.config.need_recursion:
-                        temp_list = []
-                        for index in range(syntax.now_index):
-                            temp_list.append(while_list[now_index + index])
-                        # 对于匹配想，将前后匹配项加入树中，根据条件选择放置外面还是里面
+                        temp_list = while_list[now_index:now_index + syntax.now_index]
+                        # 该token是否放置外层
                         if flow.config.prefix_outside:
-                            new_while.append(temp_list[0])
-                            now_index += 1
+                            next_list.append(temp_list[0])
                         else:
                             branch.add_tree(temp_list[0])
-                        end_index = -1
-                        if flow.config.parser_end:
-                            end_index = len(temp_list)
                         # 递归解析
                         if is_debug:
                             print("递归解析")
                             print(temp_list)
                             token_debug(temp_list[1:-1])
                             print()
-                        for token in self.parser(temp_list[1:end_index], is_debug):
+                        for token in self.parser(temp_list[1:-1], is_debug):
                             branch.add_tree(token)
                         if is_debug:
                             print("回退")
-                        # 中间部分
-                        new_while.append(branch)
                         # 结尾是否放入外面还是里面，如果是空结尾则不进行添加
-                        if not flow.config.parser_end:
-                            if flow.config.suffix_outside and not syntax.end_flag:
-                                new_while.append(temp_list[-1])
-                                if flow.config.prefix_outside:
-                                    syntax.now_index -= 1
-                            else:
-                                branch.add_tree(temp_list[-1])
-                        if is_debug:
-                            print("以匹配方式判别到的", syntax.syntax_factor.status)
-                            token_debug(branch)
-                            print()
+                        now_index = now_index + syntax.now_index - 1
+                        if flow.config.suffix_outside:
+                            next_list.append(branch)
+                            next_list.append(temp_list[-1])
+                            now_index += 1
+                        else:
+                            branch.add_tree(temp_list[-1])
+                            while_list[now_index] = branch
                     else:
-                        for index in range(syntax.now_index):
-                            branch.add_tree(while_list[now_index + index])
+                        for token in while_list[now_index:now_index + syntax.now_index]:
+                            branch.add_tree(token)
                         if is_debug:
                             print("以常规方式判别到的", syntax.syntax_factor.status)
                             token_debug(branch)
                             print()
-                        new_while.append(branch)
                         # 修改token类型
                         syntax.change_type(branch.token_tree)
-                    jump_index = syntax.now_index
-                for add_index in range(now_index + jump_index, len(while_list)):
-                    new_while.append(while_list[add_index])
-                while_list = new_while
-                if not syntax_factor:
+                        now_index = now_index + syntax.now_index - 1
+                        while_list[now_index] = branch
+                else:
+                    next_list.append(while_list[now_index])
                     now_index += 1
+            while_list = next_list
         return while_list
