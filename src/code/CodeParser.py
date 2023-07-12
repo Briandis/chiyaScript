@@ -239,7 +239,7 @@ class Token:
     def __init__(self, match_factor: MatchResult = None):
         self.type = None
         """ 类型 """
-        self.token_tree = []
+        self.token_tree: List[Token] = []
         """ Token树 """
         self.start = None
         """ 开始 """

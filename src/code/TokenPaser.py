@@ -62,7 +62,7 @@ class LexicalFactor:
 
 class SyntaxFactor:
 
-    def __init__(self, status, need_match=False, need_paired=False):
+    def __init__(self, status, need_match=False, need_paired=False, extend_type=None, father_index=None):
         self.syntax: List[LexicalFactor] = []
         """ 语法结构 """
         self.status = status
@@ -73,6 +73,10 @@ class SyntaxFactor:
         """ 需要左右成对 """
         self.token_type: Dict[int, str | Dict[str, str]] = {}
         """ 匹配后替换的token类型 """
+        self.extend_type = extend_type
+        """ 继承类型为特定位置上的类型 """
+        self.father_index = father_index
+        """ 充当父级token的下标 """
 
     def add_lexical(self, *lexical_list):
         """
@@ -316,7 +320,6 @@ class SyntaxParser:
         next_start_list = []
         while index < len(token_list):
             now_token = token_list[index]
-
             for factor_match in judge_start_list:
                 similar, equal = factor_match.prefix(now_token)
                 if equal:
@@ -359,7 +362,7 @@ class SyntaxParser:
                     branch = Token()
                     branch.type = syntax.syntax_factor.status
                     if is_debug:
-                        print("当前判别类型", syntax.syntax_factor.status)
+                        print("当前判别类型", syntax.syntax_factor.status, "找到的结尾", syntax.now_index)
                         token_debug(while_list)
                         print()
                     # 需要递归
@@ -381,23 +384,32 @@ class SyntaxParser:
                         if flow.config.suffix_match:
                             end_index = None
                         if is_debug:
-                            print("递归解析", start_index, end_index)
+                            print("递归解析", start_index, end_index, len(temp_list))
                             token_debug(temp_list[start_index:end_index])
                             print()
 
                         for token in self.parser(temp_list[start_index:end_index], is_debug):
                             branch.add_tree(token)
                         if is_debug:
-                            print("回退")
+                            print("回退", syntax.now_index)
                         now_index = now_index + syntax.now_index - 1
-                        if flow.config.suffix_outside and not flow.config.suffix_match:
+                        if flow.config.suffix_outside and not flow.config.suffix_match and not syntax.end_flag:
+                            # 如果有放置在外层，且不要后续匹配，且不需要结尾匹配
                             next_list.append(branch)
-                            next_list.append(temp_list[-1])
-                            now_index += 1
+                            # next_list.append(temp_list[-1])
+                            # now_index += 1
                         else:
                             if not flow.config.suffix_match:
                                 branch.add_tree(temp_list[-1])
-                            while_list[now_index] = branch
+                            # 改变token树
+                            if syntax.syntax_factor.father_index is not None:
+                                temp_branch = branch.token_tree[syntax.syntax_factor.father_index]
+                                for temp_token in branch.token_tree:
+                                    if temp_branch != temp_token:
+                                        temp_branch.token_tree.append(temp_token)
+                                while_list[now_index] = temp_branch
+                            else:
+                                while_list[now_index] = branch
                         if is_debug:
                             print("以递归方式判别到的", syntax.syntax_factor.status)
                             token_debug(branch)
@@ -410,8 +422,19 @@ class SyntaxParser:
                             token_debug(branch)
                             print()
                         now_index = now_index + syntax.now_index - 1
-                        while_list[now_index] = branch
+                        # 改变token树
+                        if syntax.syntax_factor.father_index is not None:
+                            temp_branch = branch.token_tree[syntax.syntax_factor.father_index]
+                            for temp_token in branch.token_tree:
+                                if temp_branch != temp_token:
+                                    temp_branch.token_tree.append(temp_token)
+                            while_list[now_index] = temp_branch
+                        else:
+                            while_list[now_index] = branch
                         syntax.change_type(branch.token_tree)
+                    if syntax.syntax_factor.extend_type is not None:
+                        branch.type = branch.token_tree[syntax.syntax_factor.extend_type].type
+
                 else:
                     next_list.append(while_list[now_index])
                     now_index += 1
