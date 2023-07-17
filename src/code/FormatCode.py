@@ -45,13 +45,32 @@ class IndexDict:
 
 
 class IterationStack:
+    class _IterationConfig:
+        def __init__(self):
+            self.index = 0
+            """ 当前迭代下标 """
+            self.judge_flag = True
+            """ 判断方法是否未执行 """
+            self.before_flag = True
+            """ 在递归前的处理方法是否未执行 """
+            self.after_flag = True
+            """ 在递归后的处理方法是否未执行 """
+            self.iteration_flag = True
+            """ 迭代时处理方法是否未执行 """
+
+        def next(self):
+            self.index += 1
+            self.judge_flag = True
+            self.before_flag = True
+            self.after_flag = True
+            self.iteration_flag = True
 
     def __init__(self):
         self.var_stack = []
         """ 变量栈 """
         self.item_stack = []
         """ 迭代对象栈 """
-        self.iteration_stack = []
+        self.iteration_stack: List[IterationStack._IterationConfig] = []
         """ 迭代信息栈 """
         self.judge_method = None
         """ 判断是否继续添加方法 """
@@ -61,6 +80,10 @@ class IterationStack:
         """ 在递归后的处理方法 """
         self.is_push = False
         """ 是否进行了入栈操作 """
+        self.iteration_method = None
+        """ 迭代时处理方法 """
+        self.is_list_copy = True
+        """ 使用列表的副本进行迭代 """
 
     def set(self, key, value):
         """
@@ -86,32 +109,66 @@ class IterationStack:
         :param list_data:添加的迭代列表
         """
         self.var_stack.append({})
-        self.item_stack.append(list_data)
-        self.iteration_stack.append([0, True, True, True])
+        if self.is_list_copy:
+            self.item_stack.append([*list_data])
+        else:
+            self.item_stack.append(list_data)
+        self.iteration_stack.append(IterationStack._IterationConfig())
         self.is_push = True
 
     def iteration(self):
         """ 开始迭代处理 """
         while self.iteration_stack:
             iteration_info = self.iteration_stack[-1]
-            if iteration_info[0] < len(self.item_stack[-1]):
-                now_data = self.item_stack[-1][iteration_info[0]]
-                if iteration_info[1] and self.before_method:
+            if iteration_info.index < len(self.item_stack[-1]):
+                now_data = self.item_stack[-1][iteration_info.index]
+                if iteration_info.before_flag and self.before_method:
                     self.before_method(self, now_data)
-                    iteration_info[1] = False
-                if iteration_info[2] and self.judge_method:
+                    iteration_info.before_flag = False
+                if iteration_info.iteration_flag and self.iteration_method:
+                    self.iteration_method(self, now_data)
+                    iteration_info.iteration_flag = False
+
+                if iteration_info.judge_flag and self.judge_method:
                     self.judge_method(self, now_data)
-                    iteration_info[2] = False
+                    iteration_info.judge_flag = False
                     if self.is_push:
                         self.is_push = False
                         continue
-                if iteration_info[3] and self.after_method:
+                if iteration_info.after_flag and self.after_method:
                     self.after_method(self, now_data)
-                    iteration_info[3] = False
-                iteration_info[0] += 1
-                iteration_info[1] = True
-                iteration_info[2] = True
-                iteration_info[3] = True
+                    iteration_info.after_flag = False
+
+                iteration_info.next()
+            else:
+                self.iteration_stack.pop()
+                self.item_stack.pop()
+                self.var_stack.pop()
+
+    def __iter__(self):
+        """ 开始迭代处理 """
+        while self.iteration_stack:
+            iteration_info = self.iteration_stack[-1]
+            if iteration_info.index < len(self.item_stack[-1]):
+                now_data = self.item_stack[-1][iteration_info.index]
+                if iteration_info.before_flag and self.before_method:
+                    self.before_method(self, now_data)
+                    iteration_info.before_flag = False
+                if iteration_info.iteration_flag and self.iteration_method:
+                    iteration_info.iteration_flag = False
+                    yield self.iteration_method(self, now_data)
+
+                if iteration_info.judge_flag and self.judge_method:
+                    self.judge_method(self, now_data)
+                    iteration_info.judge_flag = False
+                    if self.is_push:
+                        self.is_push = False
+                        continue
+                if iteration_info.after_flag and self.after_method:
+                    self.after_method(self, now_data)
+                    iteration_info.after_flag = False
+
+                iteration_info.next()
             else:
                 self.iteration_stack.pop()
                 self.item_stack.pop()
@@ -137,6 +194,13 @@ class IterationStack:
         :param method: 方法
         """
         self.after_method = method
+
+    def add_iteration(self, method):
+        """
+        添加迭代时处理方法
+        :param method: 方法
+        """
+        self.iteration_method = method
 
 
 class FormatData:
@@ -168,13 +232,14 @@ class FormatData:
             self.data += " " * self.indent * 4
             self.need_indent = False
 
-    def code_line(self, mandatory=False):
+    def code_line(self, mandatory=False, line_count=1):
         """
         代码换行
         :param mandatory:强制换行
+        :param line_count:换行数量
         """
         if mandatory or self.is_not_space():
-            self.data += "\n"
+            self.data += "\n" * line_count
         self.need_indent = True
 
     def add_data(self, *list_data: str | None):
@@ -200,8 +265,8 @@ class FormatData:
 class FormatCode:
     class _Config:
         def __init__(self,
-                     line_before_use=False,
-                     line_after_use=False,
+                     line_before_use=0,
+                     line_after_use=0,
                      indent_before_use=0,
                      indent_after_use=0,
                      child_line=False,
@@ -210,6 +275,9 @@ class FormatCode:
                      priority_space=0,
                      child_interval=False,
                      next_line_indent=False,
+                     child_space=False,
+                     line_before_interval=False,
+                     line_after_interval=False,
                      ):
             """
             配置
@@ -223,6 +291,9 @@ class FormatCode:
             :param priority_space:优先级
             :param child_interval:子项换行具有间隔
             :param next_line_indent:下一行强制缩进1行
+            :param child_space:在子项之后将权重替换为自身
+            :param line_before_interval:使用之前强制具有间距
+            :param line_after_interval:使用之后强制具有间距
             """
             self.line_before_use = line_before_use
             """ 使用前换行 """
@@ -244,13 +315,19 @@ class FormatCode:
             """ 子项换行具有间隔 """
             self.next_line_indent = next_line_indent
             """ 下一行强制缩进1行 """
+            self.child_space = child_space
+            """ 在子项之后将权重替换为自身 """
+            self.line_before_interval = line_before_interval
+            """ 使用之前强制具有间距 """
+            self.line_after_interval = line_after_interval
+            """ 使用之后强制具有间距 """
 
     def __init__(self):
         self.rule = IndexDict()
 
     def add_rule(self, token_type,
-                 line_before_use=False,
-                 line_after_use=False,
+                 line_before_use: bool | int = 0,
+                 line_after_use: bool | int = 0,
                  indent_before_use=0,
                  indent_after_use=0,
                  child_line=False,
@@ -260,6 +337,9 @@ class FormatCode:
                  priority_space=0,
                  child_interval=False,
                  next_line_indent=False,
+                 child_space=False,
+                 line_before_interval=False,
+                 line_after_interval=False,
                  ):
         """
         添加规则
@@ -275,7 +355,16 @@ class FormatCode:
         :param priority_space:优先级
         :param child_interval:子项换行具有间隔
         :param next_line_indent:下一行强制缩进1行
+        :param child_space:在子项之后将权重替换为自身
+        :param line_before_interval:使用之前强制具有间距
+        :param line_after_interval:使用之后强制具有间距
+
         """
+        if isinstance(line_after_use, bool):
+            line_after_use = 1 if line_after_use else 0
+        if isinstance(line_after_use, bool):
+            line_after_use = 1 if line_after_use else 0
+
         data = FormatCode._Config(
             line_before_use,
             line_after_use,
@@ -286,7 +375,10 @@ class FormatCode:
             right_space,
             priority_space,
             child_interval,
-            next_line_indent
+            next_line_indent,
+            child_space,
+            line_before_interval,
+            line_after_interval,
         )
         self.rule.set(token_type, data, content)
 
@@ -306,8 +398,10 @@ class FormatCode:
             now_rule: FormatCode._Config = self.rule.get(token.type, token.start)
             if now_rule:
                 form_data.indent += now_rule.indent_before_use
-                if now_rule.line_before_use:
-                    form_data.code_line()
+                if now_rule.line_before_use != 0:
+                    form_data.code_line(line_count=now_rule.line_before_use)
+                if now_rule.line_before_interval:
+                    form_data.code_line(now_rule.line_before_interval)
 
             if iteration.get("child_line", False):
                 form_data.code_line()
@@ -317,24 +411,30 @@ class FormatCode:
             if now_rule:
                 if now_rule.priority_space > form_data.last_priority_space:
                     form_data.need_space = now_rule.left_space
-                else:
+                elif now_rule.priority_space == form_data.last_priority_space:
                     form_data.need_space = now_rule.left_space and form_data.last_right_space
+                else:
+                    form_data.need_space = form_data.last_right_space
                 form_data.last_right_space = now_rule.right_space
                 form_data.last_priority_space = now_rule.priority_space
             else:
                 form_data.need_space = form_data.last_right_space
-
             form_data.add_data(token.start, token.data, token.end)
 
         def after_method(iteration: IterationStack, token: Token):
             now_rule: FormatCode._Config = self.rule.get(token.type, token.start)
             if now_rule:
                 form_data.indent += now_rule.indent_after_use
-                if now_rule.line_after_use:
-                    form_data.code_line()
+                if now_rule.line_after_use != 0:
+                    form_data.code_line(line_count=now_rule.line_after_use)
+                if now_rule.line_after_interval:
+                    form_data.code_line(now_rule.line_after_interval)
                 if now_rule.next_line_indent:
                     form_data.code_line()
                     form_data.code_indent(1)
+                if now_rule.child_space:
+                    form_data.last_right_space = now_rule.right_space
+                    form_data.last_priority_space = now_rule.priority_space
 
         iteration_stack.push(list_token)
         iteration_stack.add_judge(judge_method)

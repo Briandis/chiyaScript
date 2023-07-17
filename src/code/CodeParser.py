@@ -236,6 +236,23 @@ class Token:
         token.type = any_type
         return token
 
+    @staticmethod
+    def create(token_type: str, token_start: str | None = None, token_data: str | None = "", token_end: str | None = None):
+        """
+        创建token
+        :param token_type:token类型
+        :param token_start: 左侧字符
+        :param token_data: 右侧字符
+        :param token_end: 结束字符
+        :return: token
+        """
+        token = Token()
+        token.type = token_type
+        token.start = token_start
+        token.data = f'{token_data}'
+        token.end = token_end
+        return token
+
     def __init__(self, match_factor: MatchResult = None):
         self.type = None
         """ 类型 """
@@ -265,6 +282,16 @@ class Token:
         :param token: Token节点
         """
         self.token_tree.append(token)
+
+    def create_tree(self, token_type: str, token_start: str | None = None, token_data: str | None = "", token_end: str | None = None):
+        """
+        直接往token树中添加新token
+        :param token_type:token类型
+        :param token_start: 左侧字符
+        :param token_data: 右侧字符
+        :param token_end: 结束字符
+        """
+        self.token_tree.append(Token.create(token_type, token_start, token_data, token_end))
 
 
 class ParserMatch:
