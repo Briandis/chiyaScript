@@ -13,7 +13,7 @@ class CodeHandle:
         :param token_list: 要替换的新token
         :return:
         """
-        new_code = ""
+        new_code = []
         now_index = 0
         token_index = 0
         recursion_stack = [*code_token]
@@ -27,18 +27,18 @@ class CodeHandle:
                 end_index = token.end_index - len(token.end)
             start_index = end_index - len(token.data) + 1
             # 切割无关字符
-            new_code += old_code[now_index:start_index]
+            new_code.append(old_code[now_index:start_index])
             now_index = end_index + 1
             # 替换
-            new_code += token_list[token_index]
+            new_code.append(token_list[token_index])
             token_index += 1
             # 深层递归
             if token.token_tree:
                 next_list = [*token.token_tree]
                 next_list.reverse()
                 recursion_stack.extend(next_list)
-        new_code += old_code[now_index:len(old_code)]
-        return new_code
+        new_code.append(old_code[now_index:len(old_code)])
+        return "".join(new_code)
 
     @staticmethod
     def replace(code_token: List[Token], replace_rule: Dict[str, Dict[str, str]], ignore_case=False):
@@ -80,3 +80,43 @@ class CodeHandle:
                 recursion_stack.extend(next_list)
         # 返回
         return replace_data
+
+    @staticmethod
+    def equal(a_token: Token, b_token: Token):
+        type_flag = b_token.type is None or a_token.type == b_token.type
+        data_flag = b_token.start is None or b_token.start == a_token.start
+        data_flag = data_flag and (b_token.data is None or b_token.data == "" or b_token.data == a_token.data)
+        data_flag = data_flag and (b_token.end is None or b_token.end == a_token.end)
+        return type_flag and data_flag
+
+    @staticmethod
+    def match(list_token: List[Token], rule: List[Token]):
+        flag = True
+        for index in range(0, len(rule)):
+            match_token = list_token[index]
+            rule_token = rule[index]
+            if CodeHandle.equal(match_token, rule_token):
+                flag = flag and CodeHandle.match(match_token.token_tree, rule_token.token_tree)
+            else:
+                return False
+        return flag
+
+    @staticmethod
+    def find(list_token: List[Token], rule: List[Token], result: []):
+        index = 0
+        for token in list_token:
+            if CodeHandle.match(list_token[index:], rule):
+                result.append(token)
+            index += 1
+            if token.token_tree:
+                CodeHandle.find(token.token_tree, rule, result)
+
+    @staticmethod
+    def tree_replace(list_token: List[Token], rule: List[Token], get_token_method):
+        index = 0
+        for token in list_token:
+            if CodeHandle.match(list_token[index:], rule):
+                list_token[index] = get_token_method(list_token[index])
+            index += 1
+            if token.token_tree:
+                CodeHandle.tree_replace(token.token_tree, rule, get_token_method)

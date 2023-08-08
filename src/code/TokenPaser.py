@@ -10,7 +10,13 @@ def token_debug(tokens: Token | List[Token], indent=0):
     if isinstance(tokens, Token):
         tokens = [tokens]
     for token in tokens:
-        token_info = LoggerUtil.padding([(indent * "  " + token.type), token.end_index, f'{token.start}'.encode(), token.data.encode(), f'{token.end}'.encode()], [35, 20, 15, 25, 5])
+        token_info = LoggerUtil.padding([
+            f'{indent * "  "}{token.type}',
+            token.end_index,
+            f'{token.start}'.encode(),
+            f'{token.data}'.encode(),
+            f'{token.end}'.encode()
+        ], [35, 20, 15, 25, 5])
         print(token_info)
         if token.token_tree:
             token_debug(token.token_tree, indent + 1)
@@ -201,7 +207,7 @@ class SyntaxList:
 
 class SyntaxParserConfig:
 
-    def __init__(self, need_recursion=False, prefix_outside=False, suffix_outside=False, prefix_match=False, suffix_match=False):
+    def __init__(self, need_recursion=False, prefix_outside=False, suffix_outside=False, prefix_match=False, suffix_match=False, next_paser=None):
         """
         语法解析配置
         :param need_recursion:需要递归
@@ -209,6 +215,7 @@ class SyntaxParserConfig:
         :param suffix_outside: 后缀匹配的token放到外层
         :param prefix_match:前缀继续匹配
         :param suffix_match:后缀继续匹配
+        :param next_paser:下一层解析器
         """
         self.need_recursion = need_recursion
         """ 需要递归 """
@@ -220,6 +227,7 @@ class SyntaxParserConfig:
         """ 前缀继续匹配 """
         self.suffix_match = suffix_match
         """ 后缀继续匹配 """
+        self.next_paser = next_paser
 
 
 class SyntaxParser:
@@ -228,7 +236,7 @@ class SyntaxParser:
         self.flow: Flow[SyntaxParserConfig] = Flow()
         self.keyword_list = []
 
-    def add_syntax(self, index, syntax_factor: SyntaxFactor, need_recursion=False, prefix_outside=False, suffix_outside=False, prefix_match=False, suffix_match=False):
+    def add_syntax(self, index, syntax_factor: SyntaxFactor, need_recursion=False, prefix_outside=False, suffix_outside=False, prefix_match=False, suffix_match=False, next_paser=None):
         """
         添加语法，
         :param index: 优先级
@@ -238,10 +246,11 @@ class SyntaxParser:
         :param suffix_outside:匹配的周会放置外层
         :param prefix_match:前缀继续匹配
         :param suffix_match:后缀继续匹配
+        :param next_paser:下一层解析器
         """
         syntax = SyntaxList()
         syntax.add_syntax(syntax_factor)
-        self.flow.add_flow(index, None, syntax, SyntaxParserConfig(need_recursion, prefix_outside, suffix_outside, prefix_match, suffix_match))
+        self.flow.add_flow(index, None, syntax, SyntaxParserConfig(need_recursion, prefix_outside, suffix_outside, prefix_match, suffix_match, next_paser))
 
     @staticmethod
     def mark_type(token_list: List[Token], old_type: List[str] | str, new_type: str, old_data: List[str] = None, not_case_data: List[str] | None = None):

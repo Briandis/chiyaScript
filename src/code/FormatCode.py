@@ -208,7 +208,7 @@ class FormatData:
     def __init__(self):
         self.indent = 0
         """ 当前缩进数量 """
-        self.data = ""
+        self._data: List[str] = []
         """ 当前格式化的代码 """
         self.need_indent = False
         """ 需要缩进 """
@@ -221,15 +221,19 @@ class FormatData:
 
     def is_not_space(self):
         """ 最后一个字符是否为空 """
-        return self.data != "" and self.data[-1] not in [" ", "\n", "\t"]
+        return self._data and self.data[-1] != "" and self._data[-1][-1] not in [" ", "\n", "\t"]
 
     def code_indent(self, mandatory=0):
         """ 代码缩进 """
         if mandatory != 0:
-            self.data += " " * 4 * (self.indent + mandatory)
+            temp_data = " " * 4 * (self.indent + mandatory)
+            if temp_data:
+                self._data.append(temp_data)
             self.need_indent = False
         if self.need_indent:
-            self.data += " " * self.indent * 4
+            temp_data = " " * self.indent * 4
+            if temp_data:
+                self._data.append(temp_data)
             self.need_indent = False
 
     def code_line(self, mandatory=False, line_count=1):
@@ -239,7 +243,9 @@ class FormatData:
         :param line_count:换行数量
         """
         if mandatory or self.is_not_space():
-            self.data += "\n" * line_count
+            temp_data = "\n" * line_count
+            if temp_data:
+                self._data.append(temp_data)
         self.need_indent = True
 
     def add_data(self, *list_data: str | None):
@@ -258,8 +264,15 @@ class FormatData:
                 self.code_indent()
                 self.need_indent = False
             if self.need_space and self.is_not_space():
-                self.data += " "
-            self.data += temp
+                self._data.append(" ")
+            self._data.append(temp)
+
+    def get_data(self):
+        """
+        获取数据
+        :return:数据
+        """
+        return "".join(self._data)
 
 
 class FormatCode:
@@ -393,6 +406,7 @@ class FormatCode:
                 if now_rule:
                     iteration.set("child_line", now_rule.child_line)
                     iteration.set("child_interval", now_rule.child_interval)
+                    iteration.set("next_token", token.token_tree[0])
 
         def before_method(iteration: IterationStack, token: Token):
             now_rule: FormatCode._Config = self.rule.get(token.type, token.start)
@@ -406,7 +420,8 @@ class FormatCode:
             if iteration.get("child_line", False):
                 form_data.code_line()
             if iteration.get("child_interval", False):
-                form_data.code_line(True)
+                if iteration.get("next_token", None) != token:
+                    form_data.code_line(True)
 
             if now_rule:
                 if now_rule.priority_space > form_data.last_priority_space:
@@ -419,6 +434,12 @@ class FormatCode:
                 form_data.last_priority_space = now_rule.priority_space
             else:
                 form_data.need_space = form_data.last_right_space
+                flag = False
+                for data in [token.start, token.data, token.end]:
+                    if data is not None and data != "":
+                        flag = True
+                if flag:
+                    form_data.last_right_space = True
             form_data.add_data(token.start, token.data, token.end)
 
         def after_method(iteration: IterationStack, token: Token):
