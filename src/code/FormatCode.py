@@ -221,7 +221,7 @@ class FormatData:
 
     def is_not_space(self):
         """ 最后一个字符是否为空 """
-        return self._data and self.data[-1] != "" and self._data[-1][-1] not in [" ", "\n", "\t"]
+        return self._data and self._data[-1] != "" and self._data[-1][-1] not in [" ", "\n", "\t"]
 
     def code_indent(self, mandatory=0):
         """ 代码缩进 """
@@ -462,4 +462,4 @@ class FormatCode:
         iteration_stack.add_before(before_method)
         iteration_stack.add_after(after_method)
         iteration_stack.iteration()
-        return form_data.data
+        return form_data.get_data()

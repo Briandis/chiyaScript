@@ -108,12 +108,29 @@ class IterativeMatch:
         """ 重置 """
         self.index = 0
 
-    def match(self, next_data):
+    def match(self, next_data, context=None):
         """
         对迭代序列进行迭代
         :param next_data: 下一个迭代的数据
+        :param context: 上下文
         :return: 是前缀，完全匹配
         """
+        if context:
+            if context.small_start:
+                temp_flag, is_eq = context.small_start.match(next_data)
+                if not temp_flag:
+                    context.small_start.reset()
+                if is_eq:
+                    context.small_start.reset()
+                    context.start_count += 1
+            if context.small_end:
+                temp_flag, is_eq = context.small_end.match(next_data)
+                if not temp_flag:
+                    context.small_end.reset()
+                if is_eq:
+                    context.small_end.reset()
+                    context.end_count += 1
+
         if self.data is None or len(self.data) == 0:
             return True, True
 
@@ -132,7 +149,7 @@ class IterativeMatch:
 
 class TokenRule:
 
-    def __init__(self, status, start, end, need_escape=False, next_parser=None, self_mark=None):
+    def __init__(self, status, start, end, need_escape=False, next_parser=None, self_mark=None, count_start=None, count_end=None):
         """
         构造方法
         :param status: 状态
@@ -141,6 +158,8 @@ class TokenRule:
         :param need_escape: 需要转义
         :param next_parser: 匹配后解析
         :param self_mark:自身标记
+        :param count_start: 计数开始
+        :param count_end: 计数结束
         """
         self.start = start
         """ 开始 """
@@ -154,6 +173,10 @@ class TokenRule:
         """ 下一层解析 """
         self.self_mark = self_mark
         """ 自身标记 """
+        self.count_start = count_start
+        """ 计数开始 """
+        self.count_end = count_end
+        """ 计数结束 """
 
 
 class MatchToken:
@@ -168,6 +191,16 @@ class MatchToken:
         """ 转义字符状态 """
         self.end_index = -1
         """ 最终停止的字符位置 """
+        self.start_count = 0
+        """ 开始的计数 """
+        self.end_count = 0
+        """ 结尾的计数 """
+        self.small_start = None
+        self.small_end = None
+        if self.token_rule.count_start:
+            self.small_start = IterativeMatch(self.token_rule.count_start)
+        if self.token_rule.count_end:
+            self.small_end = IterativeMatch(self.token_rule.count_end)
 
     def prefix_end(self, next_char):
         """
@@ -196,7 +229,8 @@ class MatchToken:
                 return True, False
 
         self.cache += next_char
-        similar, equal = self.end_match.match(next_char)
+        similar, equal = self.end_match.match(next_char, self)
+        equal = equal and self.start_count == self.end_count
         if equal:
             self.cache = self.cache[0:len(self.cache) - len(self.token_rule.end)]
         return True, equal
@@ -304,7 +338,7 @@ class ParserMatch:
         self.match_index = {}
         """ 后缀匹配器索引 """
 
-    def add_rule(self, status, start, end=None, next_parser=None, self_mark=None, need_escape=False):
+    def add_rule(self, status, start, end=None, next_parser=None, self_mark=None, need_escape=False, count_start=None, count_end=None):
         """
         添加因子
         :param status:状态
@@ -313,8 +347,10 @@ class ParserMatch:
         :param next_parser:下一层解析
         :param self_mark:自身标记
         :param need_escape:需要转义处理
+        :param count_start: 计数开始
+        :param count_endL: 计数结束
         """
-        self.data.append(TokenRule(status, start, end, need_escape, next_parser=next_parser, self_mark=self_mark))
+        self.data.append(TokenRule(status, start, end, need_escape, next_parser=next_parser, self_mark=self_mark, count_start=count_start, count_end=count_end))
         self.index_tree.add(len(self.data) - 1, start)
         if end:
             self.match_index[len(self.data) - 1] = self.data[-1]
@@ -366,7 +402,7 @@ class CodeParser:
         for token in args:
             self.parser_match.add_rule(token_type, token)
 
-    def add_combination(self, token_type: str, start: str, end: str, next_parser=None, self_mark=None, need_escape=False):
+    def add_combination(self, token_type: str, start: str, end: str, next_parser=None, self_mark=None, need_escape=False, count_start=None, count_end=None):
         """
         添加组合token
         :param token_type:
@@ -375,8 +411,10 @@ class CodeParser:
         :param next_parser:匹配后下一层解析
         :param self_mark: 自身标记
         :param need_escape: 需要转义匹配
+        :param count_start: 计数开始
+        :param count_endL: 计数结束
         """
-        self.parser_match.add_rule(token_type, start, end, next_parser, self_mark, need_escape)
+        self.parser_match.add_rule(token_type, start, end, next_parser, self_mark, need_escape, count_start, count_end)
 
     def to_token(self, source_code, any_type="any", skip_type=None) -> List[Token]:
         """

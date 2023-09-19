@@ -248,9 +248,13 @@ class SyntaxParser:
         :param suffix_match:后缀继续匹配
         :param next_paser:下一层解析器
         """
-        syntax = SyntaxList()
-        syntax.add_syntax(syntax_factor)
-        self.flow.add_flow(index, None, syntax, SyntaxParserConfig(need_recursion, prefix_outside, suffix_outside, prefix_match, suffix_match, next_paser))
+
+        if index in self.flow.flow:
+            self.flow.flow[index][0].flow_data.add_syntax(syntax_factor)
+        else:
+            syntax = SyntaxList()
+            syntax.add_syntax(syntax_factor)
+            self.flow.add_flow(index, None, syntax, SyntaxParserConfig(need_recursion, prefix_outside, suffix_outside, prefix_match, suffix_match, next_paser))
 
     @staticmethod
     def mark_type(token_list: List[Token], old_type: List[str] | str, new_type: str, old_data: List[str] = None, not_case_data: List[str] | None = None):
@@ -349,7 +353,7 @@ class SyntaxParser:
                     satisfy_factor.append(factor_match)
         # 排序，起始标识进行升序
         satisfy_factor.sort(key=lambda x: x.now_index)
-        return satisfy_factor
+        return satisfy_factor[::-1]
 
     def parser(self, token_list: List[Token], is_debug=False):
         """
@@ -443,7 +447,9 @@ class SyntaxParser:
                         syntax.change_type(branch.token_tree)
                     if syntax.syntax_factor.extend_type is not None:
                         branch.type = branch.token_tree[syntax.syntax_factor.extend_type].type
-
+                    # while_list = next_list[0:] + while_list[now_index:]
+                    # next_list = []
+                    # now_index = 0
                 else:
                     next_list.append(while_list[now_index])
                     now_index += 1
