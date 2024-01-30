@@ -12,11 +12,13 @@ def token_debug(tokens: Token | List[Token], indent=0):
     for token in tokens:
         token_info = LoggerUtil.padding([
             f'{indent * "  "}{token.type}',
+            f'开始行:{token.line_start}',
+            f'结束行:{token.line_end}',
             token.end_index,
             f'{token.start}'.encode(),
             f'{token.data}'.encode(),
             f'{token.end}'.encode()
-        ], [35, 20, 15, 25, 5])
+        ], [35, 15, 15, 20, 15, 25, 5])
         print(token_info)
         if token.token_tree:
             token_debug(token.token_tree, indent + 1)
@@ -254,7 +256,15 @@ class SyntaxParser:
         else:
             syntax = SyntaxList()
             syntax.add_syntax(syntax_factor)
-            self.flow.add_flow(index, None, syntax, SyntaxParserConfig(need_recursion, prefix_outside, suffix_outside, prefix_match, suffix_match, next_paser))
+            self.flow.add_flow(index, "syntax", syntax, SyntaxParserConfig(need_recursion, prefix_outside, suffix_outside, prefix_match, suffix_match, next_paser))
+
+    def add_flow(self, index, method):
+        """
+        添加流
+        :param index:流索引
+        :param method: 处理方法
+        """
+        self.flow.add_flow(index, "flow", method, None)
 
     @staticmethod
     def mark_type(token_list: List[Token], old_type: List[str] | str, new_type: str, old_data: List[str] = None, not_case_data: List[str] | None = None):
@@ -355,86 +365,56 @@ class SyntaxParser:
         satisfy_factor.sort(key=lambda x: x.now_index)
         return satisfy_factor[::-1]
 
-    def parser(self, token_list: List[Token], is_debug=False):
-        """
-        解析生成语法树
-        :param token_list:Token列表
-        :param is_debug: debug选项
-        :return:
-        """
-        while_list = [*token_list]
-        for flow in self.flow:
-            now_index = 0
-            next_list = []
-            while now_index < len(while_list):
-                # 匹配找到的token
-                syntax_factor = self.switch_factor(flow.flow_data, now_index, while_list)
-                # 如果存在构成词法的，则进行添加
-                if syntax_factor:
-                    syntax = syntax_factor[0]
-                    branch = Token()
-                    branch.type = syntax.syntax_factor.status
-                    if is_debug:
-                        print("当前判别类型", syntax.syntax_factor.status, "找到的结尾", syntax.now_index)
-                        token_debug(while_list)
-                        print()
-                    # 需要递归
-                    if flow.config.need_recursion:
-                        temp_list = while_list[now_index:now_index + syntax.now_index]
-                        syntax.change_type(temp_list)
+    def to_token(self, flow, while_list, is_debug=False):
+        now_index = 0
+        next_list = []
+        while now_index < len(while_list):
+            # 匹配找到的token
+            syntax_factor = self.switch_factor(flow.flow_data, now_index, while_list)
+            # 如果存在构成词法的，则进行添加
+            if syntax_factor:
+                syntax = syntax_factor[0]
+                branch = Token()
+                branch.type = syntax.syntax_factor.status
+                if is_debug:
+                    print("当前判别类型", syntax.syntax_factor.status, "找到的结尾", syntax.now_index)
+                    token_debug(while_list)
+                    print()
+                # 需要递归
+                if flow.config.need_recursion:
+                    temp_list = while_list[now_index:now_index + syntax.now_index]
+                    syntax.change_type(temp_list)
 
-                        start_index = 1
-                        end_index = -1
-                        if flow.config.prefix_match:
-                            start_index = 0
-                        else:
-                            # 该token是否放置外层
-                            if flow.config.prefix_outside:
-                                next_list.append(temp_list[0])
-                            else:
-                                branch.add_tree(temp_list[0])
-
-                        if flow.config.suffix_match:
-                            end_index = None
-                        if is_debug:
-                            print("递归解析", start_index, end_index, len(temp_list))
-                            token_debug(temp_list[start_index:end_index])
-                            print()
-
-                        for token in self.parser(temp_list[start_index:end_index], is_debug):
-                            branch.add_tree(token)
-                        if is_debug:
-                            print("回退", syntax.now_index)
-                        now_index = now_index + syntax.now_index - 1
-                        if flow.config.suffix_outside and not flow.config.suffix_match and not syntax.end_flag:
-                            # 如果有放置在外层，且不要后续匹配，且不需要结尾匹配
-                            next_list.append(branch)
-                            # next_list.append(temp_list[-1])
-                            # now_index += 1
-                        else:
-                            if not flow.config.suffix_match:
-                                branch.add_tree(temp_list[-1])
-                            # 改变token树
-                            if syntax.syntax_factor.father_index is not None:
-                                temp_branch = branch.token_tree[syntax.syntax_factor.father_index]
-                                for temp_token in branch.token_tree:
-                                    if temp_branch != temp_token:
-                                        temp_branch.token_tree.append(temp_token)
-                                while_list[now_index] = temp_branch
-                            else:
-                                while_list[now_index] = branch
-                        if is_debug:
-                            print("以递归方式判别到的", syntax.syntax_factor.status)
-                            token_debug(branch)
-                            print()
+                    start_index = 1
+                    end_index = -1
+                    if flow.config.prefix_match:
+                        start_index = 0
                     else:
-                        for token in while_list[now_index:now_index + syntax.now_index]:
-                            branch.add_tree(token)
-                        if is_debug:
-                            print("以常规方式判别到的", syntax.syntax_factor.status)
-                            token_debug(branch)
-                            print()
-                        now_index = now_index + syntax.now_index - 1
+                        # 该token是否放置外层
+                        if flow.config.prefix_outside:
+                            next_list.append(temp_list[0])
+                        else:
+                            branch.add_tree(temp_list[0])
+                    if flow.config.suffix_match:
+                        end_index = None
+                    if is_debug:
+                        print("递归解析", start_index, end_index, len(temp_list))
+                        token_debug(temp_list[start_index:end_index])
+                        print()
+
+                    for token in self.parser(temp_list[start_index:end_index], is_debug):
+                        branch.add_tree(token)
+                    if is_debug:
+                        print("回退", syntax.now_index)
+                    now_index = now_index + syntax.now_index - 1
+                    if flow.config.suffix_outside and not flow.config.suffix_match and not syntax.end_flag:
+                        # 如果有放置在外层，且不要后续匹配，且不需要结尾匹配
+                        next_list.append(branch)
+                        # next_list.append(temp_list[-1])
+                        # now_index += 1
+                    else:
+                        if not flow.config.suffix_match:
+                            branch.add_tree(temp_list[-1])
                         # 改变token树
                         if syntax.syntax_factor.father_index is not None:
                             temp_branch = branch.token_tree[syntax.syntax_factor.father_index]
@@ -444,16 +424,55 @@ class SyntaxParser:
                             while_list[now_index] = temp_branch
                         else:
                             while_list[now_index] = branch
-                        syntax.change_type(branch.token_tree)
-                    if syntax.syntax_factor.extend_type is not None:
-                        branch.type = branch.token_tree[syntax.syntax_factor.extend_type].type
-                    # while_list = next_list[0:] + while_list[now_index:]
-                    # next_list = []
-                    # now_index = 0
+                    if is_debug:
+                        print("以递归方式判别到的", syntax.syntax_factor.status)
+                        token_debug(branch)
+                        print()
                 else:
-                    next_list.append(while_list[now_index])
-                    now_index += 1
-            while_list = next_list
+                    for token in while_list[now_index:now_index + syntax.now_index]:
+                        branch.add_tree(token)
+                    if is_debug:
+                        print("以常规方式判别到的", syntax.syntax_factor.status)
+                        token_debug(branch)
+                        print()
+                    now_index = now_index + syntax.now_index - 1
+                    # 改变token树
+                    if syntax.syntax_factor.father_index is not None:
+                        temp_branch = branch.token_tree[syntax.syntax_factor.father_index]
+                        for temp_token in branch.token_tree:
+                            if temp_branch != temp_token:
+                                temp_branch.token_tree.append(temp_token)
+                        while_list[now_index] = temp_branch
+                    else:
+                        while_list[now_index] = branch
+                    syntax.change_type(branch.token_tree)
+                if syntax.syntax_factor.extend_type is not None:
+                    branch.type = branch.token_tree[syntax.syntax_factor.extend_type].type
+                # 更新当前分支的所在行信息
+                branch.line_start = branch.token_tree[0].line_start
+                branch.line_end = branch.token_tree[-1].line_end
+                # while_list = next_list[0:] + while_list[now_index:]
+                # next_list = []
+                # now_index = 0
+            else:
+                next_list.append(while_list[now_index])
+                now_index += 1
+        return next_list
+
+    def parser(self, token_list: List[Token], is_debug=False):
+        """
+        解析生成语法树
+        :param token_list:Token列表
+        :param is_debug: debug选项
+        :return:
+        """
+        while_list = [*token_list]
+        for flow in self.flow:
+            match flow.type:
+                case "syntax":
+                    while_list = self.to_token(flow, while_list, is_debug)
+                case "flow":
+                    while_list = flow.flow_data(while_list)
         if is_debug:
             print("解析结束返回")
             token_debug(while_list)

@@ -302,6 +302,10 @@ class Token:
         """ 类型 """
         self.end_index = None
         """ 源文件字符位置 """
+        self.line_start = None
+        """ 源文件出现的起始行 """
+        self.line_end = None
+        """ 源文件出现的结束行 """
 
         if match_factor is not None:
             self.start = match_factor.token_rule.start
@@ -416,12 +420,13 @@ class CodeParser:
         """
         self.parser_match.add_rule(token_type, start, end, next_parser, self_mark, need_escape, count_start, count_end)
 
-    def to_token(self, source_code, any_type="any", skip_type=None) -> List[Token]:
+    def to_token(self, source_code, any_type="any", skip_type=None, line_count=0) -> List[Token]:
         """
         将代码解析成token
         :param source_code:源码
         :param any_type: 未识别类型
         :param skip_type: 跳过的类型
+        :param line_count: 行坐标信息
         :return: token列表
         """
         if skip_type:
@@ -435,15 +440,25 @@ class CodeParser:
         token_list = []
         now_index = 0
         any_token = ""
+
         while now_index < len(source_code):
             match_result = self.parser_match.match(now_index, source_code)
             if match_result:
+                line_start = line_count
+                # 未知字符处理
                 if any_token != "":
                     token_list.append(Token.any_token(any_type, any_token, now_index - 1))
+                    token_list[-1].line_start = line_start
+                    token_list[-1].line_end = line_count
                     any_token = ""
+
                 last_match = match_result[-1]
                 # 缓存结尾下标，防止递归解析时，信息丢失
                 end_index = last_match.end_index
+                # 计算行坐标
+                for char_index in range(end_index - now_index + 1):
+                    if source_code[char_index + now_index] == '\n':
+                        line_count += 1
                 if last_match.token_rule.status not in skip_type:
                     # 如果需要递归解析
                     if last_match.token_rule.next_parser is not None:
@@ -454,16 +469,19 @@ class CodeParser:
                         if last_match.token_rule.self_mark:
                             self_mark = last_match.token_rule.self_mark
                         # 进行递归解析
-                        temp_token_list = last_match.token_rule.next_parser.to_token(last_match.data, last_match.token_rule.status, skip_type)
+                        temp_token_list = last_match.token_rule.next_parser.to_token(last_match.data, last_match.token_rule.status, skip_type, line_count)
                         # 此处计算的是起始坐标
                         token_list.append(Token.start_type(self_mark, last_match.token_rule.start, start_index))
                         for token in temp_token_list:
                             token.end_index = start_index + token.end_index + 1
                         token_list.extend(temp_token_list)
                         token_list.append(Token.end_type(self_mark, last_match.token_rule.end, end_index))
-
                     else:
                         token_list.append(Token(last_match))
+                    token_list[-1].line_start = line_start
+                    token_list[-1].line_end = line_count
+                    if source_code[now_index] == '\n':
+                        token_list[-1].line_end -= 1
                 now_index = end_index
             else:
                 any_token += source_code[now_index]
