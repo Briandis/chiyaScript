@@ -70,7 +70,16 @@ class LexicalFactor:
 
 class SyntaxFactor:
 
-    def __init__(self, status, need_match=False, need_paired=False, extend_type=None, father_index=None):
+    def __init__(self, status, need_match=False, need_paired=False, extend_type=None, father_index=None, merge=False):
+        """
+        初始化
+        :param status: 语法结构
+        :param need_match: 需要匹配
+        :param need_paired: 需要成对
+        :param extend_type: 继承那个位置上的类型
+        :param father_index: 充当父级token的下标
+        :param merge: 根据上一个token类型判断是否需要合并
+        """
         self.syntax: List[LexicalFactor] = []
         """ 语法结构 """
         self.status = status
@@ -85,6 +94,8 @@ class SyntaxFactor:
         """ 继承类型为特定位置上的类型 """
         self.father_index = father_index
         """ 充当父级token的下标 """
+        self.merge = merge
+        """ 是否合并 """
 
     def add_lexical(self, *lexical_list):
         """
@@ -410,18 +421,23 @@ class SyntaxParser:
                     if flow.config.suffix_outside and not flow.config.suffix_match and not syntax.end_flag:
                         # 如果有放置在外层，且不要后续匹配，且不需要结尾匹配
                         next_list.append(branch)
-                        # next_list.append(temp_list[-1])
-                        # now_index += 1
                     else:
                         if not flow.config.suffix_match:
                             branch.add_tree(temp_list[-1])
                         # 改变token树
                         if syntax.syntax_factor.father_index is not None:
                             temp_branch = branch.token_tree[syntax.syntax_factor.father_index]
-                            for temp_token in branch.token_tree:
-                                if temp_branch != temp_token:
-                                    temp_branch.token_tree.append(temp_token)
-                            while_list[now_index] = temp_branch
+                            if syntax.syntax_factor.merge and temp_branch.type==syntax.syntax_factor.status or syntax.syntax_factor.merge is False:
+                                # 如果需要合并，且和自身类型相同或者是不需要合并
+                                for temp_token in branch.token_tree:
+                                    if temp_branch != temp_token:
+                                        temp_branch.token_tree.append(temp_token)
+                                while_list[now_index] = temp_branch
+                                while_list[now_index].line_start = while_list[now_index].token_tree[0].line_start
+                                while_list[now_index].line_end = while_list[now_index].token_tree[-1].line_end
+                            else:
+                                # 不满足则新建
+                                while_list[now_index] = branch
                         else:
                             while_list[now_index] = branch
                     if is_debug:
@@ -439,10 +455,17 @@ class SyntaxParser:
                     # 改变token树
                     if syntax.syntax_factor.father_index is not None:
                         temp_branch = branch.token_tree[syntax.syntax_factor.father_index]
-                        for temp_token in branch.token_tree:
-                            if temp_branch != temp_token:
-                                temp_branch.token_tree.append(temp_token)
-                        while_list[now_index] = temp_branch
+                        if syntax.syntax_factor.merge and temp_branch.type == syntax.syntax_factor.status or syntax.syntax_factor.merge is False:
+                            # 如果需要合并，且和自身类型相同或者是不需要合并
+                            for temp_token in branch.token_tree:
+                                if temp_branch != temp_token:
+                                    temp_branch.token_tree.append(temp_token)
+                            while_list[now_index] = temp_branch
+                            while_list[now_index].line_start = while_list[now_index].token_tree[0].line_start
+                            while_list[now_index].line_end = while_list[now_index].token_tree[-1].line_end
+                        else:
+                            # 不满足则新建
+                            while_list[now_index] = branch
                     else:
                         while_list[now_index] = branch
                     syntax.change_type(branch.token_tree)
@@ -451,9 +474,6 @@ class SyntaxParser:
                 # 更新当前分支的所在行信息
                 branch.line_start = branch.token_tree[0].line_start
                 branch.line_end = branch.token_tree[-1].line_end
-                # while_list = next_list[0:] + while_list[now_index:]
-                # next_list = []
-                # now_index = 0
             else:
                 next_list.append(while_list[now_index])
                 now_index += 1

@@ -440,6 +440,7 @@ class CodeParser:
         token_list = []
         now_index = 0
         any_token = ""
+        line_start = 0
 
         while now_index < len(source_code):
             match_result = self.parser_match.match(now_index, source_code)
@@ -488,4 +489,7 @@ class CodeParser:
             now_index += 1
         if any_token != "":
             token_list.append(Token.any_token(any_type, any_token, now_index - 1))
+            # 此处解决any的问题
+            token_list[-1].line_start = line_count
+            token_list[-1].line_end = line_count
         return token_list
