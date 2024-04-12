@@ -97,7 +97,7 @@ class SyntaxFactor:
         self.merge = merge
         """ 是否合并 """
 
-    def add_lexical(self, *lexical_list):
+    def add_lexical(self, *lexical_list: LexicalFactor):
         """
         添加语法
         :param lexical_list:
@@ -427,7 +427,7 @@ class SyntaxParser:
                         # 改变token树
                         if syntax.syntax_factor.father_index is not None:
                             temp_branch = branch.token_tree[syntax.syntax_factor.father_index]
-                            if syntax.syntax_factor.merge and temp_branch.type==syntax.syntax_factor.status or syntax.syntax_factor.merge is False:
+                            if syntax.syntax_factor.merge and temp_branch.type == syntax.syntax_factor.status or syntax.syntax_factor.merge is False:
                                 # 如果需要合并，且和自身类型相同或者是不需要合并
                                 for temp_token in branch.token_tree:
                                     if temp_branch != temp_token:

@@ -149,7 +149,7 @@ class IterativeMatch:
 
 class TokenRule:
 
-    def __init__(self, status, start, end, need_escape=False, next_parser=None, self_mark=None, count_start=None, count_end=None):
+    def __init__(self, status, start, end, need_escape=False, next_parser=None, self_mark=None, count_start=None, count_end=None, next_all_match=False):
         """
         构造方法
         :param status: 状态
@@ -160,6 +160,7 @@ class TokenRule:
         :param self_mark:自身标记
         :param count_start: 计数开始
         :param count_end: 计数结束
+        :param next_all_match: 下一层全部重新解析
         """
         self.start = start
         """ 开始 """
@@ -177,6 +178,8 @@ class TokenRule:
         """ 计数开始 """
         self.count_end = count_end
         """ 计数结束 """
+        self.next_all_match = next_all_match
+        """ 下一层全部重新解析 """
 
 
 class MatchToken:
@@ -342,7 +345,7 @@ class ParserMatch:
         self.match_index = {}
         """ 后缀匹配器索引 """
 
-    def add_rule(self, status, start, end=None, next_parser=None, self_mark=None, need_escape=False, count_start=None, count_end=None):
+    def add_rule(self, status, start, end=None, next_parser=None, self_mark=None, need_escape=False, count_start=None, count_end=None, next_all_match=False):
         """
         添加因子
         :param status:状态
@@ -352,9 +355,10 @@ class ParserMatch:
         :param self_mark:自身标记
         :param need_escape:需要转义处理
         :param count_start: 计数开始
-        :param count_endL: 计数结束
+        :param count_end: 计数结束
+        :param next_all_match: 下一层全部重新解析
         """
-        self.data.append(TokenRule(status, start, end, need_escape, next_parser=next_parser, self_mark=self_mark, count_start=count_start, count_end=count_end))
+        self.data.append(TokenRule(status, start, end, need_escape, next_parser=next_parser, self_mark=self_mark, count_start=count_start, count_end=count_end, next_all_match=next_all_match))
         self.index_tree.add(len(self.data) - 1, start)
         if end:
             self.match_index[len(self.data) - 1] = self.data[-1]
@@ -406,7 +410,7 @@ class CodeParser:
         for token in args:
             self.parser_match.add_rule(token_type, token)
 
-    def add_combination(self, token_type: str, start: str, end: str, next_parser=None, self_mark=None, need_escape=False, count_start=None, count_end=None):
+    def add_combination(self, token_type: str, start: str, end: str, next_parser=None, self_mark=None, need_escape=False, count_start=None, count_end=None, next_all_match=False):
         """
         添加组合token
         :param token_type:
@@ -416,9 +420,10 @@ class CodeParser:
         :param self_mark: 自身标记
         :param need_escape: 需要转义匹配
         :param count_start: 计数开始
-        :param count_endL: 计数结束
+        :param count_end: 计数结束
+        :param next_all_match: 下一层全部重新解析
         """
-        self.parser_match.add_rule(token_type, start, end, next_parser, self_mark, need_escape, count_start, count_end)
+        self.parser_match.add_rule(token_type, start, end, next_parser, self_mark, need_escape, count_start, count_end, next_all_match)
 
     def to_token(self, source_code, any_type="any", skip_type=None, line_count=0) -> List[Token]:
         """
@@ -469,14 +474,29 @@ class CodeParser:
                         # 如果有自身类型，则装配自身类型
                         if last_match.token_rule.self_mark:
                             self_mark = last_match.token_rule.self_mark
-                        # 进行递归解析
-                        temp_token_list = last_match.token_rule.next_parser.to_token(last_match.data, last_match.token_rule.status, skip_type, line_count)
-                        # 此处计算的是起始坐标
-                        token_list.append(Token.start_type(self_mark, last_match.token_rule.start, start_index))
-                        for token in temp_token_list:
-                            token.end_index = start_index + token.end_index + 1
-                        token_list.extend(temp_token_list)
-                        token_list.append(Token.end_type(self_mark, last_match.token_rule.end, end_index))
+                        # 如果需要下层全部重新解析
+                        if last_match.token_rule.next_all_match:
+                            # 进行递归解析
+                            temp_token_list = last_match.token_rule.next_parser.to_token(
+                                last_match.token_rule.start + last_match.data + last_match.token_rule.end,
+                                any_type,
+                                skip_type,
+                                line_count - 1)
+                            # 此处计算的是起始坐标
+                            for token in temp_token_list:
+                                token.end_index = start_index + token.end_index + 1
+                            token_list.extend(temp_token_list)
+                        else:
+                            temp_token_list = last_match.token_rule.next_parser.to_token(last_match.data, last_match.token_rule.status, skip_type, line_count - 1)
+                            # 此处计算的是起始坐标
+                            temp_token = Token.start_type(self_mark, last_match.token_rule.start, start_index)
+                            temp_token.line_start = line_start
+                            temp_token.line_end = line_start
+                            token_list.append(temp_token)
+                            for token in temp_token_list:
+                                token.end_index = start_index + token.end_index + 1
+                            token_list.extend(temp_token_list)
+                            token_list.append(Token.end_type(self_mark, last_match.token_rule.end, end_index))
                     else:
                         token_list.append(Token(last_match))
                     token_list[-1].line_start = line_start
