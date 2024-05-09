@@ -453,9 +453,10 @@ class CodeParser:
                 line_start = line_count
                 # 未知字符处理
                 if any_token != "":
-                    token_list.append(Token.any_token(any_type, any_token, now_index - 1))
-                    token_list[-1].line_start = line_start
-                    token_list[-1].line_end = line_count
+                    if any_type not in skip_type:
+                        token_list.append(Token.any_token(any_type, any_token, now_index - 1))
+                        token_list[-1].line_start = line_start
+                        token_list[-1].line_end = line_count
                     any_token = ""
 
                 last_match = match_result[-1]
